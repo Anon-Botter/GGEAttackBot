@@ -1,3 +1,4 @@
 <resources>
   <string name="app_name">GGEAttackBot</string>
+  <string name="test_accessibility_description">Allows configured test taps from the GGEAttackBot overlay.</string>
 </resources>

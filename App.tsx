@@ -2,19 +2,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { NativeModules, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
-const STARTING_COORDINATES = [
-  '309:1027', '271:1007', '763:621', '309:1030', '686:513', '746:593', '296:1020', '544:431',
-  '342:748', '625:690', '539:429', '381:892', '647:408', '386:1023', '439:492', '923:753',
-  '268:963', '336:945', '479:602', '330:938', '765:584', '400:726', '281:934', '509:639',
-  '685:507', '322:1045', '472:734', '513:639', '483:905', '623:644', '517:655', '904:608',
-  '629:699', '510:642', '659:399', '552:561', '1013:449', '555:561', '485:902', '752:320',
-  '546:559', '687:516', '386:1020', '648:619',
-];
-
 const formatRemaining = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 export default function App() {
-  const [coordinates, setCoordinates] = useState(STARTING_COORDINATES);
+  const [coordinates, setCoordinates] = useState<string[]>([]);
   const [targetIndex, setTargetIndex] = useState(0);
   const [running, setRunning] = useState(false);
   const [interval, setIntervalSeconds] = useState(60);
@@ -40,6 +31,13 @@ export default function App() {
   useEffect(() => {
     setRemaining(interval);
   }, [interval]);
+
+  useEffect(() => {
+    const overlay = NativeModules.TestOverlay;
+    if (Platform.OS === 'android' && overlay) {
+      overlay.configureTargets(coordinates, interval * 1000);
+    }
+  }, [coordinates, interval]);
 
   useEffect(() => {
     if (!running) return;
@@ -76,6 +74,21 @@ export default function App() {
     addEvent(`Added ${x}:${y}.`);
   };
 
+  const removeCoordinate = (index: number) => {
+    const removed = coordinates[index];
+    setCoordinates((current) => current.filter((_, coordinateIndex) => coordinateIndex !== index));
+    setTargetIndex((current) => Math.max(0, Math.min(current, coordinates.length - 2)));
+    if (coordinates.length === 1) setRunning(false);
+    addEvent(`Removed ${removed}.`);
+  };
+
+  const clearCoordinates = () => {
+    setCoordinates([]);
+    setTargetIndex(0);
+    setRunning(false);
+    addEvent('Cleared all test targets.');
+  };
+
   const toggleSystemOverlay = () => {
     const overlay = NativeModules.TestOverlay;
     if (Platform.OS !== 'android' || !overlay) {
@@ -91,6 +104,15 @@ export default function App() {
       setOverlayVisible(true);
       addEvent('Opening overlay permission or showing floating panel.');
     }
+  };
+
+  const openAccessibilitySettings = () => {
+    const overlay = NativeModules.TestOverlay;
+    if (Platform.OS !== 'android' || !overlay) {
+      addEvent('Accessibility setup needs the installed Android app.');
+      return;
+    }
+    overlay.openAccessibilitySettings();
   };
   return (
     <SafeAreaView style={styles.screen}>
@@ -119,7 +141,7 @@ export default function App() {
               <View>
                 <Text style={styles.label}>NEXT TARGET</Text>
                 <Text style={styles.coordinate}>{target}</Text>
-                <Text style={styles.counter}>#{targetIndex + 1} of {coordinates.length}</Text>
+                <Text style={styles.counter}>{coordinates.length ? `#${targetIndex + 1} of ${coordinates.length}` : 'No test targets configured'}</Text>
               </View>
               <View style={styles.clock}>
                 <Text style={styles.clockValue}>{formatRemaining(remaining)}</Text>
@@ -155,12 +177,31 @@ export default function App() {
                 <Pressable style={styles.overlayToggle} onPress={toggleSystemOverlay}>
                   <Text style={styles.overlayToggleText}>{overlayVisible ? 'HIDE FLOATING OVERLAY' : 'SHOW FLOATING OVERLAY'}</Text>
                 </Pressable>
+                <Pressable style={styles.accessibilityButton} onPress={openAccessibilitySettings}>
+                  <Text style={styles.accessibilityButtonText}>ENABLE TEST TAPS</Text>
+                </Pressable>
                 <Text style={styles.label}>ADD TEST TARGET</Text>
                 <View style={styles.addRow}>
                   <TextInput placeholder="X" placeholderTextColor="#78808a" keyboardType="number-pad" value={xValue} onChangeText={setXValue} style={styles.coordInput} />
                   <TextInput placeholder="Y" placeholderTextColor="#78808a" keyboardType="number-pad" value={yValue} onChangeText={setYValue} style={styles.coordInput} />
                   <Pressable style={styles.addButton} onPress={addCoordinate}><Text style={styles.addButtonText}>ADD</Text></Pressable>
                 </View>
+                <View style={styles.savedTargetsHeader}>
+                  <Text style={styles.label}>SAVED TEST TARGETS</Text>
+                  <Pressable onPress={clearCoordinates}><Text style={styles.clearText}>CLEAR ALL</Text></Pressable>
+                </View>
+                {coordinates.length === 0 ? (
+                  <Text style={styles.emptyTargets}>Add an X:Y point to create your test sequence.</Text>
+                ) : coordinates.map((coordinate, index) => (
+                  <View key={`${coordinate}-${index}`} style={[styles.savedTarget, targetIndex === index && styles.selectedTarget]}>
+                    <Pressable style={styles.targetSelect} onPress={() => setTargetIndex(index)}>
+                      <Text style={styles.savedTargetText}>{coordinate}</Text>
+                    </Pressable>
+                    <Pressable style={styles.removeButton} onPress={() => removeCoordinate(index)}>
+                      <Text style={styles.removeButtonText}>REMOVE</Text>
+                    </Pressable>
+                  </View>
+                ))}
               </View>
             )}
 
@@ -211,10 +252,21 @@ const styles = StyleSheet.create({
   settingText: { color: '#2f4137', fontSize: 14, fontWeight: '600' },
   overlayToggle: { height: 40, marginBottom: 13, backgroundColor: '#294b3c', borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
   overlayToggleText: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 0.7 },
+  accessibilityButton: { height: 40, marginBottom: 13, borderWidth: 1, borderColor: '#a98022', borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
+  accessibilityButtonText: { color: '#6f5114', fontSize: 11, fontWeight: '800', letterSpacing: 0.7 },
   addRow: { marginTop: 5, flexDirection: 'row', gap: 7 },
   coordInput: { flex: 1, height: 39, paddingHorizontal: 9, backgroundColor: '#fff', borderColor: '#c4cec3', borderWidth: 1, borderRadius: 4, color: '#172329' },
   addButton: { width: 55, backgroundColor: '#294b3c', borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
   addButtonText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  savedTargetsHeader: { marginTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  clearText: { color: '#a54138', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  emptyTargets: { marginTop: 8, color: '#69736d', fontSize: 12, lineHeight: 18 },
+  savedTarget: { height: 39, marginTop: 7, paddingLeft: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderColor: '#c4cec3', borderWidth: 1, borderRadius: 4 },
+  selectedTarget: { borderColor: '#0b946a', borderWidth: 2 },
+  targetSelect: { flex: 1, height: '100%', justifyContent: 'center' },
+  savedTargetText: { color: '#172329', fontSize: 14, fontWeight: '700' },
+  removeButton: { alignSelf: 'stretch', paddingHorizontal: 10, justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: '#d6ddd4' },
+  removeButtonText: { color: '#b13e36', fontSize: 10, fontWeight: '800' },
   logSection: { marginTop: 16 },
   logEntry: { color: '#4d5c55', fontFamily: 'monospace', fontSize: 11, lineHeight: 18, marginTop: 3 },
 });
